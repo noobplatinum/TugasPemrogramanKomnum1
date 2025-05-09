@@ -102,7 +102,66 @@ void interpolateCSV(const string& inputFile, const string& outputFile) {
         xValues.push_back(stod(data[row][0]));
     }
 
-    for (int col = 1; col < numCols; ++col) {
+    // Process internet percentage column (column 1) specially
+    if (numCols > 1) {
+        int col = 1; // Internet percentage column
+        vector<double> knownX, knownY, queryX;
+        vector<int> missingRows;
+
+        // For internet percentage, only consider non-zero values for interpolation
+        for (int row = 1; row < numRows; ++row) {
+            string cell = data[row][col];
+            if (isMissing(cell)) {
+                queryX.push_back(xValues[row - 1]);
+                missingRows.push_back(row);
+            } else {
+                double value = stod(cell);
+                // Only use non-zero values as reference points
+                if (value > 0) {
+                    knownX.push_back(xValues[row - 1]);
+                    knownY.push_back(value);
+                } else if (row > 1) {
+                    // For years with 0% internet, keep them as 0 if before first non-zero year
+                    if (outputData[row][col] == "0" && knownX.empty()) {
+                        continue; // Keep as 0
+                    } else {
+                        // Otherwise treat as missing data to interpolate
+                        queryX.push_back(xValues[row - 1]);
+                        missingRows.push_back(row);
+                    }
+                }
+            }
+        }
+
+        if (knownX.size() < 2) {
+            cerr << "Not enough non-zero data to interpolate internet percentage column\n";
+        } else {
+            vector<double> interpolatedY = cubicSplineInterpolate(knownX, knownY, queryX);
+
+            for (size_t i = 0; i < missingRows.size(); ++i) {
+                int row = missingRows[i];
+                double year = xValues[row - 1];
+                
+                // If the year is before the first non-zero internet usage year,
+                // set it to 0 rather than interpolating
+                if (year < knownX[0]) {
+                    outputData[row][col] = "0";
+                } else {
+                    // Otherwise use the interpolated value
+                    double value = interpolatedY[i];
+                    // Ensure interpolated values are non-negative
+                    value = max(0.0, value);
+                    
+                    ostringstream oss;
+                    oss << fixed << setprecision(4) << value;
+                    outputData[row][col] = oss.str();
+                }
+            }
+        }
+    }
+
+    // Process all other columns (like population) with normal interpolation
+    for (int col = 2; col < numCols; ++col) {
         vector<double> knownX, knownY, queryX;
         vector<int> missingRows;
 
